@@ -4,8 +4,7 @@ pygame.init()
 
 # ================= CONFIG =================
 WIDTH, HEIGHT = 640, 640
-ROWS, COLS = 8, 8
-SQ = WIDTH // COLS
+SQ = WIDTH // 8
 
 WHITE = (240, 240, 240)
 GREEN = (118, 150, 86)
@@ -42,10 +41,7 @@ def create_board():
     ]
 
 # ================= STATE =================
-castle_rights = {
-    "w": {"K": True, "Q": True},
-    "b": {"K": True, "Q": True}
-}
+castle_rights = {"w": {"K": True, "Q": True}, "b": {"K": True, "Q": True}}
 en_passant_target = None
 
 # ================= DRAW =================
@@ -63,24 +59,25 @@ def draw_pieces(board):
 
 def highlight_moves(moves, board, piece, from_pos):
     fr, fc = from_pos
-
     for r, c in moves:
         rect = (c*SQ, r*SQ, SQ, SQ)
 
-        # 🔵 CASTLING (vua đi 2 ô ngang)
         if piece[1] == "k" and abs(c - fc) == 2:
             color = CASTLE_COLOR
-
-        # 🔴 ăn quân
         elif board[r][c] != "" and board[r][c][0] != piece[0]:
             color = RED
-
-        # 🟡 đi thường
         else:
             color = HIGHLIGHT
 
         pygame.draw.rect(screen, color, rect)
         pygame.draw.rect(screen, (0,0,0), rect, 1)
+
+def highlight_king_in_check(board, turn):
+    if is_in_check(board, turn):
+        pos = find_king(board, turn)
+        if pos:
+            r, c = pos
+            pygame.draw.rect(screen, (255, 0, 0), (c*SQ, r*SQ, SQ, SQ), 4)
 
 def draw_grid():
     for i in range(9):
@@ -95,8 +92,20 @@ def draw_popup(text):
 
     font = pygame.font.SysFont(None, 60)
     label = font.render(text, True, (255,255,255))
-    rect = label.get_rect(center=(WIDTH//2, HEIGHT//2))
+    rect = label.get_rect(center=(WIDTH//2, HEIGHT//2 - 50))
     screen.blit(label, rect)
+
+    # Button "Play Again"
+    btn_rect = pygame.Rect(WIDTH//2 - 100, HEIGHT//2 + 20, 200, 60)
+    pygame.draw.rect(screen, (200,200,200), btn_rect)
+    pygame.draw.rect(screen, (0,0,0), btn_rect, 2)
+
+    btn_font = pygame.font.SysFont(None, 40)
+    btn_text = btn_font.render("Play Again", True, (0,0,0))
+    btn_text_rect = btn_text.get_rect(center=btn_rect.center)
+    screen.blit(btn_text, btn_text_rect)
+
+    return btn_rect
 
 def draw_promotion_menu(color):
     overlay = pygame.Surface((WIDTH, HEIGHT))
@@ -104,15 +113,13 @@ def draw_promotion_menu(color):
     overlay.fill((0,0,0))
     screen.blit(overlay,(0,0))
 
-    pieces = ["q","r","b","n"]
-    for i,p in enumerate(pieces):
+    for i,p in enumerate(["q","r","b","n"]):
         x = WIDTH//2 - 2*SQ + i*SQ
         y = HEIGHT//2 - SQ//2
         rect = pygame.Rect(x,y,SQ,SQ)
 
         pygame.draw.rect(screen,(200,200,200),rect)
         pygame.draw.rect(screen,(0,0,0),rect,2)
-
         screen.blit(IMAGES[color+p],(x,y))
 
 # ================= UTIL =================
@@ -146,11 +153,8 @@ def get_valid_moves(board,r,c):
     piece=board[r][c]
     if piece=="": return []
     color=piece[0]
-    valid=[]
-    for move in get_moves(board,r,c):
-        if not is_in_check(simulate(board,(r,c),move),color):
-            valid.append(move)
-    return valid
+    return [m for m in get_moves(board,r,c)
+            if not is_in_check(simulate(board,(r,c),m),color)]
 
 def has_valid_moves(board,color):
     for r in range(8):
@@ -163,20 +167,20 @@ def has_valid_moves(board,color):
 def check_game_over(board,turn):
     if is_in_check(board,turn):
         if not has_valid_moves(board,turn):
-            return "checkmate"
+            return "Checkmate!"
     else:
         if not has_valid_moves(board,turn):
-            return "stalemate"
+            return "Stalemate!"
     return None
 
 def update_castle_rights_on_capture(board,r,c):
     piece=board[r][c]
     if piece=="wr":
-        if r==7 and c==0: castle_rights["w"]["Q"]=False
-        elif r==7 and c==7: castle_rights["w"]["K"]=False
-    elif piece=="br":
-        if r==0 and c==0: castle_rights["b"]["Q"]=False
-        elif r==0 and c==7: castle_rights["b"]["K"]=False
+        if (r,c)==(7,0): castle_rights["w"]["Q"]=False
+        if (r,c)==(7,7): castle_rights["w"]["K"]=False
+    if piece=="br":
+        if (r,c)==(0,0): castle_rights["b"]["Q"]=False
+        if (r,c)==(0,7): castle_rights["b"]["K"]=False
 
 def check_promotion(board,r,c):
     return (board[r][c]=="wp" and r==0) or (board[r][c]=="bp" and r==7)
@@ -190,6 +194,7 @@ def get_moves(board,r,c,include_castle=True):
     color,p=piece
     moves=[]
 
+    # Pawn
     if p=="p":
         dir=-1 if color=="w" else 1
 
@@ -201,20 +206,18 @@ def get_moves(board,r,c,include_castle=True):
 
         for dc in [-1,1]:
             nr,nc=r+dir,c+dc
-            if in_bounds(nr,nc):
-                if board[nr][nc]!="" and is_enemy(piece,board[nr][nc]):
-                    moves.append((nr,nc))
+            if in_bounds(nr,nc) and board[nr][nc]!="" and is_enemy(piece,board[nr][nc]):
+                moves.append((nr,nc))
 
         if en_passant_target:
             if (r+dir,c-1)==en_passant_target or (r+dir,c+1)==en_passant_target:
                 moves.append(en_passant_target)
 
+    # Rook/Bishop/Queen
     if p in ["r","b","q"]:
         dirs=[]
-        if p in ["r","q"]:
-            dirs+=[(1,0),(-1,0),(0,1),(0,-1)]
-        if p in ["b","q"]:
-            dirs+=[(1,1),(1,-1),(-1,1),(-1,-1)]
+        if p in ["r","q"]: dirs+=[(1,0),(-1,0),(0,1),(0,-1)]
+        if p in ["b","q"]: dirs+=[(1,1),(1,-1),(-1,1),(-1,-1)]
 
         for dr,dc in dirs:
             nr,nc=r,c
@@ -228,12 +231,14 @@ def get_moves(board,r,c,include_castle=True):
                         moves.append((nr,nc))
                     break
 
+    # Knight
     if p=="n":
         for dr,dc in [(2,1),(2,-1),(-2,1),(-2,-1),(1,2),(1,-2),(-1,2),(-1,-2)]:
             nr,nc=r+dr,c+dc
             if in_bounds(nr,nc) and (board[nr][nc]=="" or is_enemy(piece,board[nr][nc])):
                 moves.append((nr,nc))
 
+    # King + Castling
     if p=="k":
         for dr in [-1,0,1]:
             for dc in [-1,0,1]:
@@ -245,19 +250,26 @@ def get_moves(board,r,c,include_castle=True):
         if include_castle and not is_in_check(board,color):
             row = 7 if color=="w" else 0
 
-            if castle_rights[color]["K"]:
+            if castle_rights[color]["K"] and board[row][7] == color+"r":
                 if board[row][5]=="" and board[row][6]=="":
                     if not is_in_check(simulate(board,(r,c),(row,5)),color):
                         if not is_in_check(simulate(board,(r,c),(row,6)),color):
                             moves.append((row,6))
 
-            if castle_rights[color]["Q"]:
+            if castle_rights[color]["Q"] and board[row][0] == color+"r":
                 if board[row][1]=="" and board[row][2]=="" and board[row][3]=="":
                     if not is_in_check(simulate(board,(r,c),(row,3)),color):
                         if not is_in_check(simulate(board,(r,c),(row,2)),color):
                             moves.append((row,2))
 
     return moves
+
+def reset_game():
+    global castle_rights, en_passant_target
+    board = create_board()
+    castle_rights = {"w": {"K": True, "Q": True}, "b": {"K": True, "Q": True}}
+    en_passant_target = None
+    return board, "w", None, None, False, None
 
 # ================= MAIN =================
 def main():
@@ -269,10 +281,8 @@ def main():
     selected=None
     valid=[]
     turn="w"
-
     promotion=False
     promotion_pos=None
-
     game_over=None
 
     running=True
@@ -284,13 +294,14 @@ def main():
             highlight_moves(valid, board, board[selected[0]][selected[1]], selected)
 
         draw_pieces(board)
+        highlight_king_in_check(board, turn)
 
         if promotion:
-            color=board[promotion_pos[0]][promotion_pos[1]][0]
-            draw_promotion_menu(color)
+            draw_promotion_menu(board[promotion_pos[0]][promotion_pos[1]][0])
 
+        btn_rect = None
         if game_over:
-            draw_popup(game_over)
+            btn_rect = draw_popup(game_over)
 
         pygame.display.update()
 
@@ -301,27 +312,23 @@ def main():
             if e.type==pygame.MOUSEBUTTONDOWN:
 
                 if game_over:
+                    mx, my = pygame.mouse.get_pos()
+                    if btn_rect and btn_rect.collidepoint(mx, my):
+                        board, turn, selected, game_over, promotion, promotion_pos = reset_game()
+                        valid = []
                     continue
 
-                # promotion click
                 if promotion:
                     mx,my=pygame.mouse.get_pos()
                     for i,p in enumerate(["q","r","b","n"]):
                         x=WIDTH//2-2*SQ+i*SQ
                         y=HEIGHT//2-SQ//2
-                        rect=pygame.Rect(x,y,SQ,SQ)
-
-                        if rect.collidepoint(mx,my):
+                        if pygame.Rect(x,y,SQ,SQ).collidepoint(mx,my):
                             r,c=promotion_pos
-                            color=board[r][c][0]
-                            board[r][c]=color+p
-
+                            board[r][c]=board[r][c][0]+p
                             promotion=False
-                            promotion_pos=None
-
                             turn="b" if turn=="w" else "w"
-                            game_over = check_game_over(board, turn)
-
+                            game_over=check_game_over(board,turn)
                     continue
 
                 r,c=pygame.mouse.get_pos()[1]//SQ, pygame.mouse.get_pos()[0]//SQ
@@ -340,30 +347,20 @@ def main():
                         board[r][c]=piece
                         board[pr][pc]=""
 
-                        # update castle rights
-                        if piece=="wk":
-                            castle_rights["w"]["K"]=False
-                            castle_rights["w"]["Q"]=False
-                        elif piece=="bk":
-                            castle_rights["b"]["K"]=False
-                            castle_rights["b"]["Q"]=False
-                        elif piece=="wr":
-                            if pr==7 and pc==0: castle_rights["w"]["Q"]=False
-                            elif pr==7 and pc==7: castle_rights["w"]["K"]=False
-                        elif piece=="br":
-                            if pr==0 and pc==0: castle_rights["b"]["Q"]=False
-                            elif pr==0 and pc==7: castle_rights["b"]["K"]=False
-
-                        # castling rook move
                         if piece[1]=="k":
+                            castle_rights[piece[0]]={"K":False,"Q":False}
                             if c==6:
-                                board[r][5]=board[r][7]
-                                board[r][7]=""
-                            elif c==2:
-                                board[r][3]=board[r][0]
-                                board[r][0]=""
+                                board[r][5]=board[r][7]; board[r][7]=""
+                            if c==2:
+                                board[r][3]=board[r][0]; board[r][0]=""
 
-                        # en passant
+                        if piece=="wr":
+                            if (pr,pc)==(7,0): castle_rights["w"]["Q"]=False
+                            if (pr,pc)==(7,7): castle_rights["w"]["K"]=False
+                        if piece=="br":
+                            if (pr,pc)==(0,0): castle_rights["b"]["Q"]=False
+                            if (pr,pc)==(0,7): castle_rights["b"]["K"]=False
+
                         if piece[1]=="p" and abs(r-pr)==2:
                             en_passant_target=((r+pr)//2,c)
                         else:
@@ -374,7 +371,7 @@ def main():
                             promotion_pos=(r,c)
                         else:
                             turn="b" if turn=="w" else "w"
-                            game_over = check_game_over(board, turn)
+                            game_over=check_game_over(board,turn)
 
                         selected=None
                         valid=[]
