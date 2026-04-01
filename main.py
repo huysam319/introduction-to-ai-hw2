@@ -1,4 +1,6 @@
 import pygame
+from mcts import GameState
+from minimax import get_alpha_beta_move
 
 pygame.init()
 
@@ -11,6 +13,7 @@ GREEN = (118, 150, 86)
 HIGHLIGHT = (246, 246, 105)
 RED = (220, 50, 50)
 CASTLE_COLOR = (100, 180, 255)
+LAST_MOVE_CLR = (255, 165, 0)
 
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Chess")
@@ -72,6 +75,16 @@ def highlight_moves(moves, board, piece, from_pos):
         pygame.draw.rect(screen, color, rect)
         pygame.draw.rect(screen, (0,0,0), rect, 1)
 
+def highlight_last_move(last_move):
+    if not last_move:
+        return
+
+    (fr, fc), (tr, tc) = last_move
+    for r, c in [(fr, fc), (tr, tc)]:
+        rect = (c*SQ, r*SQ, SQ, SQ)
+        pygame.draw.rect(screen, LAST_MOVE_CLR, rect)
+        pygame.draw.rect(screen, (0,0,0), rect, 1)
+
 def highlight_king_in_check(board, turn):
     if is_in_check(board, turn):
         pos = find_king(board, turn)
@@ -83,6 +96,17 @@ def draw_grid():
     for i in range(9):
         pygame.draw.line(screen, (0,0,0), (0,i*SQ),(WIDTH,i*SQ),1)
         pygame.draw.line(screen, (0,0,0), (i*SQ,0),(i*SQ,HEIGHT),1)
+
+def draw_thinking_indicator():
+    font = pygame.font.SysFont(None, 34)
+    label = font.render("AI đang suy nghĩ...", True, (255, 255, 50))
+    bg = pygame.Surface((label.get_width() + 16, label.get_height() + 10))
+    bg.set_alpha(200)
+    bg.fill((30, 30, 30))
+    x = WIDTH // 2 - bg.get_width() // 2
+    y = HEIGHT - bg.get_height() - 8
+    screen.blit(bg, (x, y))
+    screen.blit(label, (x + 8, y + 5))
 
 def draw_popup(text):
     overlay = pygame.Surface((WIDTH, HEIGHT))
@@ -185,6 +209,19 @@ def update_castle_rights_on_capture(board,r,c):
 def check_promotion(board,r,c):
     return (board[r][c]=="wp" and r==0) or (board[r][c]=="bp" and r==7)
 
+def play_black_ai_move(board, turn, depth=3):
+    global castle_rights, en_passant_target
+
+    state = GameState(board, turn, castle_rights, en_passant_target)
+    move = get_alpha_beta_move(state, "b", depth=depth)
+    if move is None:
+        return board, turn, None
+
+    next_state = state.apply(move[0], move[1], track_history=False)
+    castle_rights = next_state.cr
+    en_passant_target = next_state.ep
+    return next_state.board, next_state.turn, move
+
 # ================= MOVE =================
 def get_moves(board,r,c,include_castle=True):
     global en_passant_target
@@ -276,18 +313,41 @@ def main():
     global en_passant_target
 
     load_images()
-    board=create_board()
+    board = create_board()
 
-    selected=None
-    valid=[]
-    turn="w"
-    promotion=False
-    promotion_pos=None
-    game_over=None
+    selected = None
+    valid = []
+    turn = "w"
+    promotion = False
+    promotion_pos = None
+    game_over = None
+    last_move = None
 
-    running=True
+    running = True
     while running:
+        if not game_over and not promotion and turn == "b":
+            draw_board()
+            highlight_last_move(last_move)
+            draw_grid()
+
+            if selected:
+                highlight_moves(valid, board, board[selected[0]][selected[1]], selected)
+
+            draw_pieces(board)
+            highlight_king_in_check(board, turn)
+            draw_thinking_indicator()
+            pygame.display.update()
+            pygame.event.pump()
+
+            board, turn, ai_move = play_black_ai_move(board, turn)
+            last_move = ai_move
+            selected = None
+            valid = []
+            game_over = check_game_over(board, turn)
+            continue
+
         draw_board()
+        highlight_last_move(last_move)
         draw_grid()
 
         if selected:
@@ -306,82 +366,88 @@ def main():
         pygame.display.update()
 
         for e in pygame.event.get():
-            if e.type==pygame.QUIT:
-                running=False
+            if e.type == pygame.QUIT:
+                running = False
 
-            if e.type==pygame.MOUSEBUTTONDOWN:
+            if e.type == pygame.MOUSEBUTTONDOWN:
+                mx, my = pygame.mouse.get_pos()
 
                 if game_over:
-                    mx, my = pygame.mouse.get_pos()
                     if btn_rect and btn_rect.collidepoint(mx, my):
                         board, turn, selected, game_over, promotion, promotion_pos = reset_game()
                         valid = []
+                        last_move = None
                     continue
 
                 if promotion:
-                    mx,my=pygame.mouse.get_pos()
-                    for i,p in enumerate(["q","r","b","n"]):
-                        x=WIDTH//2-2*SQ+i*SQ
-                        y=HEIGHT//2-SQ//2
-                        if pygame.Rect(x,y,SQ,SQ).collidepoint(mx,my):
-                            r,c=promotion_pos
-                            board[r][c]=board[r][c][0]+p
-                            promotion=False
-                            turn="b" if turn=="w" else "w"
-                            game_over=check_game_over(board,turn)
+                    for i, p in enumerate(["q", "r", "b", "n"]):
+                        x = WIDTH//2 - 2*SQ + i*SQ
+                        y = HEIGHT//2 - SQ//2
+                        if pygame.Rect(x, y, SQ, SQ).collidepoint(mx, my):
+                            r, c = promotion_pos
+                            board[r][c] = board[r][c][0] + p
+                            promotion = False
+                            turn = "b" if turn == "w" else "w"
+                            game_over = check_game_over(board, turn)
                     continue
 
-                r,c=pygame.mouse.get_pos()[1]//SQ, pygame.mouse.get_pos()[0]//SQ
+                if turn == "b":
+                    continue
+
+                r, c = my // SQ, mx // SQ
 
                 if selected:
-                    if (r,c) in valid:
-                        pr,pc=selected
-                        piece=board[pr][pc]
+                    if (r, c) in valid:
+                        pr, pc = selected
+                        piece = board[pr][pc]
 
-                        if board[r][c]!="":
-                            update_castle_rights_on_capture(board,r,c)
+                        if board[r][c] != "":
+                            update_castle_rights_on_capture(board, r, c)
 
-                        if piece[1]=="p" and (r,c)==en_passant_target:
-                            board[pr][c]=""
+                        if piece[1] == "p" and (r, c) == en_passant_target:
+                            board[pr][c] = ""
 
-                        board[r][c]=piece
-                        board[pr][pc]=""
+                        board[r][c] = piece
+                        board[pr][pc] = ""
+                        last_move = (selected, (r, c))
 
-                        if piece[1]=="k":
-                            castle_rights[piece[0]]={"K":False,"Q":False}
-                            if c==6:
-                                board[r][5]=board[r][7]; board[r][7]=""
-                            if c==2:
-                                board[r][3]=board[r][0]; board[r][0]=""
+                        if piece[1] == "k":
+                            castle_rights[piece[0]] = {"K": False, "Q": False}
+                            if abs(c - pc) == 2 and c == 6:
+                                board[r][5] = board[r][7]
+                                board[r][7] = ""
+                            if abs(c - pc) == 2 and c == 2:
+                                board[r][3] = board[r][0]
+                                board[r][0] = ""
 
-                        if piece=="wr":
-                            if (pr,pc)==(7,0): castle_rights["w"]["Q"]=False
-                            if (pr,pc)==(7,7): castle_rights["w"]["K"]=False
-                        if piece=="br":
-                            if (pr,pc)==(0,0): castle_rights["b"]["Q"]=False
-                            if (pr,pc)==(0,7): castle_rights["b"]["K"]=False
+                        if piece == "wr":
+                            if (pr, pc) == (7, 0): castle_rights["w"]["Q"] = False
+                            if (pr, pc) == (7, 7): castle_rights["w"]["K"] = False
+                        if piece == "br":
+                            if (pr, pc) == (0, 0): castle_rights["b"]["Q"] = False
+                            if (pr, pc) == (0, 7): castle_rights["b"]["K"] = False
 
-                        if piece[1]=="p" and abs(r-pr)==2:
-                            en_passant_target=((r+pr)//2,c)
+                        if piece[1] == "p" and abs(r - pr) == 2:
+                            en_passant_target = ((r + pr) // 2, c)
                         else:
-                            en_passant_target=None
+                            en_passant_target = None
 
-                        if check_promotion(board,r,c):
-                            promotion=True
-                            promotion_pos=(r,c)
+                        if check_promotion(board, r, c):
+                            promotion = True
+                            promotion_pos = (r, c)
                         else:
-                            turn="b" if turn=="w" else "w"
-                            game_over=check_game_over(board,turn)
+                            turn = "b" if turn == "w" else "w"
+                            game_over = check_game_over(board, turn)
 
-                        selected=None
-                        valid=[]
+                        selected = None
+                        valid = []
                     else:
-                        selected=None
-                        valid=[]
+                        selected = None
+                        valid = []
                 else:
-                    if board[r][c]!="" and board[r][c][0]==turn:
-                        selected=(r,c)
-                        valid=get_valid_moves(board,r,c)
+                    if board[r][c] != "" and board[r][c][0] == turn:
+                        selected = (r, c)
+                        valid = get_valid_moves(board, r, c)
 
     pygame.quit()
 
