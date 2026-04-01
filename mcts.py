@@ -440,10 +440,16 @@ class GameState:
 
         if p[1] == "k":
             cr[p[0]] = {"K": False, "Q": False}
-            if c1 == 6:
+            if (r0, c0) == (7, 4) and p[0] == "w" and c1 == 6:
                 b[r1][5] = b[r1][7]
                 b[r1][7] = ""
-            elif c1 == 2:
+            elif (r0, c0) == (7, 4) and p[0] == "w" and c1 == 2:
+                b[r1][3] = b[r1][0]
+                b[r1][0] = ""
+            elif (r0, c0) == (0, 4) and p[0] == "b" and c1 == 6:
+                b[r1][5] = b[r1][7]
+                b[r1][7] = ""
+            elif (r0, c0) == (0, 4) and p[0] == "b" and c1 == 2:
                 b[r1][3] = b[r1][0]
                 b[r1][0] = ""
 
