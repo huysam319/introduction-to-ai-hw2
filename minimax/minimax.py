@@ -90,7 +90,7 @@ def get_alpha_beta_move(state, ai_color, depth=3):
 # ======================================================================
 
 if __name__ == "__main__":
-    from mcts import GameState
+    from game_state import GameState
 
     def make_initial_state():
         board = [

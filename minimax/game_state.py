@@ -1,19 +1,5 @@
-"""
-Upgraded Monte Carlo Tree Search (MCTS) for chess.
-
-Highlights:
-- Better rollout policy (ordered tactical playouts, not fully random)
-- Stronger static evaluation (material + piece-square tables + structure)
-- Draw rules in search (50-move rule, threefold repetition, insufficient material)
-- Move ordering and progressive prior in UCB
-- Tree reuse across turns
-- Transposition stat seeding
-"""
-
 import math
 import random
-import time
-
 
 PIECE_VAL = {
     "p": 100,
@@ -791,62 +777,3 @@ def _reuse_root_or_new(state):
                 return grandchild
 
     return Node(state)
-
-
-def mcts(state: GameState, ai_color: str, time_limit: float = 2.0):
-    """
-    Run MCTS for `time_limit` seconds and return the best move.
-    """
-    global _LAST_ROOT
-
-    if state.turn != ai_color:
-        # Keep API robust: if caller passes mismatched color, align to side-to-move.
-        ai_color = state.turn
-
-    if ai_color != state.turn:
-        return None
-
-    root = _reuse_root_or_new(state)
-
-    if not root.untried and not root.children:
-        return None
-
-    deadline = time.time() + max(0.05, time_limit)
-    iterations = 0
-
-    while time.time() < deadline:
-        node = root
-
-        # 1) Selection
-        while not node.untried and node.children:
-            node = max(node.children, key=lambda x: x.ucb())
-
-        # 2) Expansion
-        if node.untried:
-            node = node.expand()
-
-        # 3) Simulation
-        result = node.rollout()
-
-        # 4) Backpropagation
-        node.backprop(result)
-        iterations += 1
-
-    if not root.children:
-        fallback = state.ordered_moves()
-        return fallback[0] if fallback else None
-
-    # Robust child: primarily by visits, then value.
-    best = max(root.children, key=lambda n: (n.visits, n.wins / max(1, n.visits)))
-
-    # Reuse subtree in next call.
-    best.parent = None
-    _LAST_ROOT = best
-
-    if _DEBUG:
-        best_visits = max((n.visits for n in root.children), default=0)
-        print(
-            f"[MCTS] {iterations} iterations | children={len(root.children)} | best_visits={best_visits}"
-        )
-
-    return best.move

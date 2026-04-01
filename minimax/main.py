@@ -1,5 +1,5 @@
 import pygame
-from mcts import GameState
+from game_state import GameState
 from minimax import get_alpha_beta_move
 
 pygame.init()
@@ -16,7 +16,15 @@ CASTLE_COLOR = (100, 180, 255)
 LAST_MOVE_CLR = (255, 165, 0)
 
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Chess")
+pygame.display.set_caption("Chess - Minimax AI")
+
+
+def get_ui_font(size, bold=False):
+    for name in ["Segoe UI", "Tahoma", "Arial", "DejaVu Sans", "Noto Sans"]:
+        font_path = pygame.font.match_font(name, bold=bold)
+        if font_path:
+            return pygame.font.Font(font_path, size)
+    return pygame.font.SysFont(None, size, bold=bold)
 
 # ================= LOAD =================
 IMAGES = {}
@@ -98,7 +106,7 @@ def draw_grid():
         pygame.draw.line(screen, (0,0,0), (i*SQ,0),(i*SQ,HEIGHT),1)
 
 def draw_thinking_indicator():
-    font = pygame.font.SysFont(None, 34)
+    font = get_ui_font(34, bold=True)
     label = font.render("AI đang suy nghĩ...", True, (255, 255, 50))
     bg = pygame.Surface((label.get_width() + 16, label.get_height() + 10))
     bg.set_alpha(200)
@@ -114,7 +122,7 @@ def draw_popup(text):
     overlay.fill((0,0,0))
     screen.blit(overlay,(0,0))
 
-    font = pygame.font.SysFont(None, 60)
+    font = get_ui_font(60, bold=True)
     label = font.render(text, True, (255,255,255))
     rect = label.get_rect(center=(WIDTH//2, HEIGHT//2 - 50))
     screen.blit(label, rect)
@@ -124,8 +132,8 @@ def draw_popup(text):
     pygame.draw.rect(screen, (200,200,200), btn_rect)
     pygame.draw.rect(screen, (0,0,0), btn_rect, 2)
 
-    btn_font = pygame.font.SysFont(None, 40)
-    btn_text = btn_font.render("Play Again", True, (0,0,0))
+    btn_font = get_ui_font(40, bold=True)
+    btn_text = btn_font.render("Chơi lại", True, (0,0,0))
     btn_text_rect = btn_text.get_rect(center=btn_rect.center)
     screen.blit(btn_text, btn_text_rect)
 
@@ -191,10 +199,10 @@ def has_valid_moves(board,color):
 def check_game_over(board,turn):
     if is_in_check(board,turn):
         if not has_valid_moves(board,turn):
-            return "Checkmate!"
+            return f"Chiếu hết!" + ("AI thắng" if turn == "w" else "Bạn thắng!")
     else:
         if not has_valid_moves(board,turn):
-            return "Stalemate!"
+            return "Bế tắc - Hòa!"
     return None
 
 def update_castle_rights_on_capture(board,r,c):
@@ -286,6 +294,8 @@ def get_moves(board,r,c,include_castle=True):
 
         if include_castle and not is_in_check(board,color):
             row = 7 if color=="w" else 0
+            if not (r == row and c == 4):
+                return moves
 
             if castle_rights[color]["K"] and board[row][7] == color+"r":
                 if board[row][5]=="" and board[row][6]=="":
@@ -413,10 +423,16 @@ def main():
 
                         if piece[1] == "k":
                             castle_rights[piece[0]] = {"K": False, "Q": False}
-                            if abs(c - pc) == 2 and c == 6:
+                            if (pr, pc) == (7, 4) and piece[0] == "w" and c == 6:
                                 board[r][5] = board[r][7]
                                 board[r][7] = ""
-                            if abs(c - pc) == 2 and c == 2:
+                            elif (pr, pc) == (7, 4) and piece[0] == "w" and c == 2:
+                                board[r][3] = board[r][0]
+                                board[r][0] = ""
+                            elif (pr, pc) == (0, 4) and piece[0] == "b" and c == 6:
+                                board[r][5] = board[r][7]
+                                board[r][7] = ""
+                            elif (pr, pc) == (0, 4) and piece[0] == "b" and c == 2:
                                 board[r][3] = board[r][0]
                                 board[r][0] = ""
 
